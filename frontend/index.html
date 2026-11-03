@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EMS — Employee Management</title>
+<style>
+  :root{--bg:#0f1720;--card:#17212b;--accent:#4f8cff;--text:#e6edf3;--muted:#8b98a5;--border:#26323d;--danger:#e5534b;--ok:#3fb950}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text)}
+  header{padding:16px 24px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+  header h1{font-size:18px;margin:0}
+  #authBadge{font-size:13px;color:var(--muted)}
+  main{max-width:960px;margin:0 auto;padding:24px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:18px;margin-bottom:18px}
+  .card h2{margin-top:0;font-size:15px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+  input,select,button{font-size:14px;padding:8px 10px;border-radius:6px;border:1px solid var(--border);background:#0d1520;color:var(--text)}
+  input,select{margin:4px 6px 4px 0}
+  button{background:var(--accent);border:none;color:#fff;cursor:pointer;font-weight:600}
+  button.secondary{background:transparent;border:1px solid var(--border);color:var(--text)}
+  button:hover{opacity:.9}
+  table{width:100%;border-collapse:collapse;margin-top:10px;font-size:13px}
+  th,td{text-align:left;padding:8px;border-bottom:1px solid var(--border)}
+  th{color:var(--muted);font-weight:600}
+  .row{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+  .msg{font-size:13px;margin-top:8px}
+  .msg.error{color:var(--danger)}
+  .msg.ok{color:var(--ok)}
+  .hidden{display:none}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Employee Management System</h1>
+  <span id="authBadge">Not logged in</span>
+</header>
+
+<main>
+
+  <section class="card" id="authCard">
+    <h2>Login / Register</h2>
+    <div class="row">
+      <input id="username" placeholder="username (try: admin)">
+      <input id="password" type="password" placeholder="password (try: Admin@123)">
+      <button onclick="login()">Login</button>
+      <button class="secondary" onclick="register()">Register new user</button>
+      <button class="secondary" onclick="logout()">Logout</button>
+    </div>
+    <div id="authMsg" class="msg"></div>
+  </section>
+
+  <section class="card hidden" id="appSection">
+
+    <h2>Departments</h2>
+    <div class="row">
+      <input id="deptName" placeholder="Department name">
+      <input id="deptDesc" placeholder="Description">
+      <button onclick="createDepartment()">Add department</button>
+      <button class="secondary" onclick="loadDepartments()">Refresh</button>
+    </div>
+    <table>
+      <thead><tr><th>ID</th><th>Name</th><th>Description</th><th># Employees</th></tr></thead>
+      <tbody id="deptTable"></tbody>
+    </table>
+    <div id="deptMsg" class="msg"></div>
+
+    <h2 style="margin-top:24px">Employees</h2>
+    <div class="row">
+      <input id="empFirst" placeholder="First name">
+      <input id="empLast" placeholder="Last name">
+      <input id="empEmail" placeholder="Email">
+      <input id="empDesignation" placeholder="Designation">
+      <input id="empSalary" type="number" placeholder="Salary">
+      <input id="empDeptId" type="number" placeholder="Department ID (optional)">
+      <button onclick="createEmployee()">Add employee</button>
+    </div>
+    <div class="row">
+      <input id="empSearch" placeholder="Search by name/email">
+      <button class="secondary" onclick="searchEmployees(0)">Search</button>
+    </div>
+    <table>
+      <thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Designation</th><th>Dept</th><th></th></tr></thead>
+      <tbody id="empTable"></tbody>
+    </table>
+    <div class="row" id="empPager"></div>
+    <div id="empMsg" class="msg"></div>
+
+    <h2 style="margin-top:24px">Tasks</h2>
+    <div class="row">
+      <input id="taskTitle" placeholder="Task title">
+      <input id="taskEmpId" type="number" placeholder="Employee ID">
+      <select id="taskPriority">
+        <option value="LOW">LOW</option>
+        <option value="MEDIUM" selected>MEDIUM</option>
+        <option value="HIGH">HIGH</option>
+        <option value="CRITICAL">CRITICAL</option>
+      </select>
+      <button onclick="createTask()">Add task</button>
+    </div>
+    <div class="row">
+      <input id="taskFilterEmpId" type="number" placeholder="Employee ID">
+      <button class="secondary" onclick="loadTasksByEmployee()">Load tasks for employee</button>
+    </div>
+    <table>
+      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Priority</th><th>Due</th><th>Assigned To</th><th></th></tr></thead>
+      <tbody id="taskTable"></tbody>
+    </table>
+    <div id="taskMsg" class="msg"></div>
+
+  </section>
+
+</main>
+
+<script>
+const API = "http://localhost:8089/api";
+let token = null, currentUser = null;
+
+function authHeaders() {
+  return token ? { "Authorization": "Bearer " + token, "Content-Type": "application/json" }
+               : { "Content-Type": "application/json" };
+}
+
+async function api(path, method = "GET", body) {
+  const res = await fetch(API + path, {
+    method,
+    headers: authHeaders(),
+    body: body ? JSON.stringify(body) : undefined
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.message || res.statusText);
+  return data;
+}
+
+function setMsg(id, text, ok) {
+  const el = document.getElementById(id);
+  el.textContent = text;
+  el.className = "msg " + (ok ? "ok" : "error");
+}
+
+async function login() {
+  try {
+    const data = await api("/auth/login", "POST", {
+      username: document.getElementById("username").value,
+      password: document.getElementById("password").value
+    });
+    token = data.accessToken;
+    currentUser = data.username;
+    document.getElementById("authBadge").textContent = `${data.username} (${data.role})`;
+    document.getElementById("appSection").classList.remove("hidden");
+    setMsg("authMsg", "Logged in successfully.", true);
+    loadDepartments();
+  } catch (e) {
+    setMsg("authMsg", e.message, false);
+  }
+}
+
+async function register() {
+  try {
+    await api("/auth/register", "POST", {
+      username: document.getElementById("username").value,
+      password: document.getElementById("password").value
+    });
+    setMsg("authMsg", "Registered! Now click Login.", true);
+  } catch (e) {
+    setMsg("authMsg", e.message, false);
+  }
+}
+
+function logout() {
+  token = null; currentUser = null;
+  document.getElementById("authBadge").textContent = "Not logged in";
+  document.getElementById("appSection").classList.add("hidden");
+}
+
+async function loadDepartments() {
+  try {
+    const depts = await api("/departments");
+    const tbody = document.getElementById("deptTable");
+    tbody.innerHTML = depts.map(d =>
+      `<tr><td>${d.id}</td><td>${d.name}</td><td>${d.description ?? ""}</td><td>${d.employeeCount}</td></tr>`
+    ).join("");
+  } catch (e) { setMsg("deptMsg", e.message, false); }
+}
+
+async function createDepartment() {
+  try {
+    await api("/departments", "POST", {
+      name: document.getElementById("deptName").value,
+      description: document.getElementById("deptDesc").value
+    });
+    setMsg("deptMsg", "Department created.", true);
+    loadDepartments();
+  } catch (e) { setMsg("deptMsg", e.message, false); }
+}
+
+async function createEmployee() {
+  try {
+    const deptId = document.getElementById("empDeptId").value;
+    await api("/employees", "POST", {
+      firstName: document.getElementById("empFirst").value,
+      lastName: document.getElementById("empLast").value,
+      email: document.getElementById("empEmail").value,
+      designation: document.getElementById("empDesignation").value,
+      salary: parseFloat(document.getElementById("empSalary").value) || null,
+      departmentId: deptId ? parseInt(deptId) : null
+    });
+    setMsg("empMsg", "Employee created.", true);
+    searchEmployees(0);
+    loadDepartments();
+  } catch (e) { setMsg("empMsg", e.message, false); }
+}
+
+async function searchEmployees(page) {
+  try {
+    const keyword = document.getElementById("empSearch").value;
+    const q = keyword ? `?keyword=${encodeURIComponent(keyword)}&page=${page}` : `?page=${page}`;
+    const data = await api("/employees" + q);
+    const tbody = document.getElementById("empTable");
+    tbody.innerHTML = data.content.map(e =>
+      `<tr><td>${e.id}</td><td>${e.firstName} ${e.lastName}</td><td>${e.email}</td><td>${e.designation ?? ""}</td><td>${e.departmentName ?? "-"}</td>
+       <td><button class="secondary" onclick="deleteEmployee(${e.id})">Delete</button></td></tr>`
+    ).join("");
+
+    const pager = document.getElementById("empPager");
+    pager.innerHTML = `Page ${data.number + 1} of ${data.totalPages || 1}
+      <button class="secondary" ${data.first ? "disabled" : ""} onclick="searchEmployees(${data.number - 1})">Prev</button>
+      <button class="secondary" ${data.last ? "disabled" : ""} onclick="searchEmployees(${data.number + 1})">Next</button>`;
+  } catch (e) { setMsg("empMsg", e.message, false); }
+}
+
+async function deleteEmployee(id) {
+  try {
+    await api(`/employees/${id}`, "DELETE");
+    searchEmployees(0);
+  } catch (e) { setMsg("empMsg", e.message, false); }
+}
+
+async function createTask() {
+  try {
+    await api("/tasks", "POST", {
+      title: document.getElementById("taskTitle").value,
+      employeeId: parseInt(document.getElementById("taskEmpId").value),
+      priority: document.getElementById("taskPriority").value
+    });
+    setMsg("taskMsg", "Task created.", true);
+    loadTasksByEmployee();
+  } catch (e) { setMsg("taskMsg", e.message, false); }
+}
+
+async function loadTasksByEmployee() {
+  try {
+    const empId = document.getElementById("taskFilterEmpId").value || document.getElementById("taskEmpId").value;
+    if (!empId) return;
+    const data = await api(`/tasks/employee/${empId}`);
+    const tbody = document.getElementById("taskTable");
+    tbody.innerHTML = data.content.map(t =>
+      `<tr><td>${t.id}</td><td>${t.title}</td><td>${t.status}</td><td>${t.priority}</td><td>${t.dueDate ?? "-"}</td><td>${t.employeeName ?? "-"}</td>
+       <td><button class="secondary" onclick="cycleStatus(${t.id}, '${t.status}')">Advance status</button></td></tr>`
+    ).join("");
+  } catch (e) { setMsg("taskMsg", e.message, false); }
+}
+
+async function cycleStatus(id, current) {
+  const order = ["TODO", "IN_PROGRESS", "IN_REVIEW", "DONE"];
+  const next = order[(order.indexOf(current) + 1) % order.length];
+  try {
+    await api(`/tasks/${id}/status?status=${next}`, "PATCH");
+    loadTasksByEmployee();
+  } catch (e) { setMsg("taskMsg", e.message, false); }
+}
+</script>
+
+</body>
+</html>
